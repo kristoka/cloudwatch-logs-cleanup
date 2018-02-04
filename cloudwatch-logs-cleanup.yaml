@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudWatch Logs Cleanup is a serverless solution powered by Lambda to automate CloudWatch logs management 
+  by seting the retention policy on your log groups to a given default value.
+Parameters:
+  RetentionInDays:
+    Type: Number
+    Default: 30
+    AllowedValues:
+      - 1
+      - 3
+      - 5
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+      - 120
+      - 150
+      - 180
+      - 365
+      - 400
+      - 545
+      - 731
+      - 1827
+      - 3653
+    Description: Select log groups retention in days. Default is 14 days.
+  LogGroupNamePrefix:
+    Type: String
+    MaxLength: 512
+    AllowedPattern: '^[\\.\\-_/#A-Za-z0-9]*$'
+    Default: ''
+    Description: Enter an optional log group name prefix to narrow down to a sertain service e.g. /aws/lambda/.
+
+Resources:
+  CreateLogGroupRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Part of CloudWatch Logs Cleanup. Invokes Lambda function in case of CreateLogGroup events.
+      EventPattern:
+        source:
+          - aws.logs
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - logs.amazonaws.com
+          eventName:
+            - CreateLogGroup
+      State: ENABLED
+      Targets:
+        - Arn:
+            !GetAtt CWLogsCleanup.Arn
+          Id: TargetFunctionV1
+    DependsOn: CWLogsCleanup
+
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        !Ref CWLogsCleanup
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        !GetAtt CreateLogGroupRule.Arn
+    DependsOn: CreateLogGroupRule
+
+  CWLogsCleanup:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Sets the retention period for CloudWatch log groups.
+      FunctionName: CWLogsCleanup
+      Handler: lambda_function.lambda_handler
+      Runtime: python2.7
+      Role:
+        !GetAtt LambdaExecutionRole.Arn
+      Code: lambda_function
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          retention_in_days:
+            !Ref RetentionInDays
+          log_group_prefix:
+            !Ref LogGroupNamePrefix
+    DependsOn:
+      - LambdaExecutionRole
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              - Effect: Allow
+                Action: 
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  LambdaLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/CWLogsCleanup
+      RetentionInDays:
+        !Ref RetentionInDays
+
+  S3Bucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 1
+            Status: Enabled
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource:
+              !Sub arn:aws:s3:::${S3Bucket}
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource:
+              !Sub arn:aws:s3:::${S3Bucket}/AWSLogs/${AWS::AccountId}/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+    DependsOn:
+      - S3Bucket
+
+  CWLogsCleanupTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: CWLogsCleanupTrail
+      S3BucketName:
+        !Ref S3Bucket
+      IsLogging: true
+      IsMultiRegionTrail: false
+    DependsOn:
+      - BucketPolicy
