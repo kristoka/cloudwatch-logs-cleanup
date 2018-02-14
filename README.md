@@ -28,11 +28,11 @@ git clone https://github.com/kristoka/cloudwatch-logs-cleanup.git && cd cloudwat
 ```
 
 Make a new S3 bucket for code uploads. Run the cloudformation package command that zips the lambda_function directory, uploads it to a previously created S3 bucket and prepares a new template that references the uploaded lambda code package. 
-Make sure to replace <YOUR-RANDOM-PREFIX> with something that makes this bucket name globally unique.
+Make sure to replace <RANDOM-SUFFIX> with something that makes this bucket name globally unique.
 
 ```shell
-aws s3 mb s3://cloudwatch-logs-cleanup-code-<YOUR-RANDOM-PREFIX>
-aws cloudformation package --template-file cloudwatch-logs-cleanup.yaml --s3-bucket cloudwatch-logs-cleanup-code-<YOUR-RANDOM-PREFIX> --output-template-file cloudwatch-logs-cleanup-output.yaml
+aws s3 mb s3://cloudwatch-logs-cleanup-code-<RANDOM-SUFFIX>
+aws cloudformation package --template-file cloudwatch-logs-cleanup.yaml --s3-bucket cloudwatch-logs-cleanup-code-<RANDOM-SUFFIX> --output-template-file cloudwatch-logs-cleanup-output.yaml
 ```
 
 Run the cloudformation create-stack command. It will automatically provision all the underlaying resources. Give AWS up to 10 minutes or so to fire everything up before trying it out. An S3 bucket created earlier for packaged Lambda code can be deleted after successful deployment.
@@ -54,10 +54,17 @@ aws cloudformation delete-stack --stack-name cloudwatch-logs-cleanup
 ```
 
 This will delete all the provisioned resources except these:
-* CloudTrail S3 bucket named after stack e.g. cloudwatch-logs-cleanup-*
-* S3 bucket created earlier for Lambda code upload
+* CloudTrail S3 bucket named after stack is retained: cloudwatch-logs-cleanup-*
+* S3 bucket created earlier for Lambda code upload: cloudwatch-logs-cleanup-code-<RANDOM-SUFFIX>
 
-Remove them manually.
+Remove them manually using these commands.
+
+```shell
+# find out the exact bucket names
+aws s3 ls
+# permanenty delete the given buckets and all the content
+aws s3 rb s3://<BUCKET-NAME> --force
+```
 
 ## Configuration
 
@@ -74,6 +81,12 @@ Possible values: `[\\.\\-_/#A-Za-z0-9]*`
 Default: `/aws/lambda/`
 
 Used to narrow log group names down to a given service. For an example: prefix "/aws/lambda/" will ensure that only lambda specific log groups match e.g. "/aws/lambda/FunctionName"
+
+#### CloudTrail
+Possible values: `true/false`  
+Default: `true`
+
+Whether new CloudTrail trail should be created. Select false if you already have enabled trail in current region, otherwise new trail will be provisioned. 
 
 #### Example:
 ```shell

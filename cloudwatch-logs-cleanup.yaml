@@ -31,6 +31,16 @@ Parameters:
     AllowedPattern: '^[\\.\\-_/#A-Za-z0-9]*$'
     Default: ''
     Description: Enter an optional log group name prefix to narrow down to a sertain service e.g. /aws/lambda/.
+  CloudTrail:
+    Type: String
+    Default: true 
+    AllowedValues:
+      - true
+      - false
+    Description: Select false if you already have a CloudTrail trail in current region, otherwise new trail will be provisioned. 
+  
+Conditions:
+  CreateCloudTrail: !Equals [ !Ref CloudTrail, 'true' ]
 
 Resources:
   CreateLogGroupRule:
@@ -128,6 +138,7 @@ Resources:
         Rules:
           - ExpirationInDays: 1
             Status: Enabled
+    Condition: CreateCloudTrail
 
   BucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -156,6 +167,7 @@ Resources:
                 s3:x-amz-acl: bucket-owner-full-control
     DependsOn:
       - S3Bucket
+    Condition: CreateCloudTrail
 
   CWLogsCleanupTrail:
     Type: AWS::CloudTrail::Trail
@@ -167,3 +179,4 @@ Resources:
       IsMultiRegionTrail: false
     DependsOn:
       - BucketPolicy
+    Condition: CreateCloudTrail
